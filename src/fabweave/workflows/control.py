@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
-from fabweave.chamber.matching import Tolerance, mismatch_reasons
+from fabweave.chamber.matching import MATCHED, ChamberSample, Tolerance, mismatch_reasons, paired_match_report
 from fabweave.chemicals.shelf_life import shelf_life_remaining
 from fabweave.cleanroom.excursion import active_excursion
 from fabweave.contamination.segregation import incompatible_pairs
 from fabweave.core.decision import Decision, allow, deny
 from fabweave.core.events import EventLog
 from fabweave.core.timebox import TimeBox
+from fabweave.core.versioning import RevisionHistory
 from fabweave.dedication.tool import DedicationPolicy, policy_decision
 from fabweave.dispatch.priority import DispatchCandidate, rank_candidates
 from fabweave.energy.demand import demand_violations
@@ -144,6 +145,25 @@ def chamber_sample_decision(
         sample = ()
     evidence = {"sample_wafer_ids": tuple(wafer.wafer_id for wafer in sample)}
     return deny(*reasons, **evidence) if reasons else allow(**evidence)
+
+
+def chamber_pair_decision(
+    golden: list[ChamberSample],
+    candidate: list[ChamberSample],
+    rules: RevisionHistory[dict[str, Tolerance]],
+    max_gap: int,
+    min_pairs: int,
+) -> Decision:
+    report = paired_match_report(golden, candidate, rules, max_gap, min_pairs)
+    evidence = {
+        "verdict": report.verdict,
+        "member_pairs": tuple((outcome.pair.golden.sample_id, outcome.pair.candidate.sample_id) for outcome in report.pairs),
+        "rule_versions": report.rule_versions,
+        "report": report,
+    }
+    if report.verdict == MATCHED:
+        return allow(**evidence)
+    return deny(*report.reasons, **evidence)
 
 
 def environmental_containment(
